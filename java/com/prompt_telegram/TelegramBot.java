@@ -1,6 +1,9 @@
 package com.prompt_telegram;
 
-
+import com.prompt_telegram.entity.StableDiffusionQueryes;
+import com.prompt_telegram.repository.StableDiffusionQueryRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
@@ -10,14 +13,34 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.sql.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
+
+    HashMap<Long, ArrayList<String>> mapAnswer = new HashMap<>();
+    ArrayList<Long> listOfUsers = new ArrayList<>();
+
+    @Autowired
+    private StableDiffusionQueryRepository stableRepo;
+
+    private enum ChatState {
+        START,
+        SECOND_LEVEL
+    }
+
+    private final String url = "jdbc:postgresql://localhost/mypromptgen";
+    private final String username = "postgres";
+    private final String password = "vilka88";
 
     static final String HELP_TEXT = "This bot is created to demonstrate Spring capabilities.\n\n" +
             "You can execute commands from the main menu on the left or by typing a command:\n\n" +
@@ -46,12 +69,12 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return "";
+        return "midjourney_best_bot";
     }
 
     @Override
     public String getBotToken() {
-        return "";
+        return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
     }
 
     private void sendWithOutURL(Message message, String hello) {  // кнопки!
@@ -88,22 +111,31 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    @Async
     @Override
     public void onUpdateReceived(Update update) {
+
+        boolean hasText = update.hasMessage() && update.getMessage().hasText();
+
         if (update.hasMessage() && update.getMessage().hasText()) {
             String messageText = update.getMessage().getText();
             Message command = update.getMessage();
             long chatID = update.getMessage().getChatId();
             String hello = "Привет " + update.getMessage().getChat().getFirstName();
             update.getMessage().getDocument();
+
+
+
+
             switch (messageText) {
                 case "/start":
                     startAnswer(command, hello);
+
                     break;
 
                 case "/planes":
 
-                    allPlanes(command);
+                    allPlanes(chatID, command);
                     break;
 
                 case "/help":
@@ -116,8 +148,16 @@ public class TelegramBot extends TelegramLongPollingBot {
                                 SendMessage.builder()
                                         .chatId(command.getChatId())
                                         .parseMode("Markdown")
-                                        .text("Sorry, I don't understand your command!")
+                                        .text("Пробую работать. Или sorry i don't understand. Я скорее всего выполнюсь в любом случае")
                                         .build());
+
+                            execute(
+                            SendMessage.builder()
+                                    .chatId(command.getChatId())
+                                    .parseMode("Markdown")
+                                    .text("Я каким то чудом отработал, кстати привет")
+                                    .build());
+
                     } catch (TelegramApiException e) {
                         e.printStackTrace();
                     }
@@ -126,15 +166,20 @@ public class TelegramBot extends TelegramLongPollingBot {
         } else if (update.hasCallbackQuery()) {
             if (update.getCallbackQuery().getData().equals("start0")) {
                 try {
-                    execute(
-                            SendMessage.builder()
-                                    .chatId(update.getCallbackQuery().getMessage().getChatId())
-                                    .parseMode("Markdown")
-                                    .text("_I am Stable Diffusion Online!_")
-                                    .build());
+                    String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+
+                    execute(SendMessage.builder()
+                            .chatId(chatId)
+                            .parseMode("Markdown")
+                            .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                            .build());
+
+                       sendMessage(update, "я работаю все хорошо");
+
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
                 }
+            }
 
             } else if (update.getCallbackQuery().getData().equals("start1")) {
                 try {
@@ -142,22 +187,68 @@ public class TelegramBot extends TelegramLongPollingBot {
                             SendMessage.builder()
                                     .chatId(update.getCallbackQuery().getMessage().getChatId())
                                     .parseMode("Markdown")
-                                    .text("_I am MidJourney!_")
+                                    .text("Вы выбрали MidJourney. Введите запрос того, что хотите сгенерировать")
                                     .build());
+
+
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
                 }
             }
         }
+
+
+    private void stableDiffString(Message msg) throws TelegramApiException {
+        var chatID = msg.getChatId();
+        var query = msg.getText();
+        var username = msg.getChat().getFirstName();
+        StableDiffusionQueryes stableDiffusionEntity = new StableDiffusionQueryes();
+
+        stableDiffusionEntity.setQuery(query);
+        stableDiffusionEntity.setUsr(username);
+
+        stableRepo.save(stableDiffusionEntity);
+        execute(
+                SendMessage.builder()
+                        .chatId(msg.getChatId())
+                        .chatId(chatID)
+                        .parseMode("Markdown")
+                        .text("метод отправки в БД stable_diffusion отработал")
+                        .build());
     }
+    public void sendMessage(Update update, String text){
+        try {
+            execute(
+                    SendMessage.builder()
+                            .chatId((update.hasMessage()) ? update.getMessage().getChatId() : update.getCallbackQuery().getFrom().getId())
+                            .text(text)
+                            .build());
+        }
+        catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
 
     public void startAnswer(Message command, String hello) {
         sendWithOutURL(command, hello);
     }
 
-    private void allPlanes(Message message) {
-
+    private void allPlanes(long ChatID, Message message) {
+        try {
+            execute(
+                    SendMessage.builder()
+                            .chatId(message.getChatId())
+                            .chatId(ChatID)
+                            .parseMode("Markdown")
+                            .text("Я ответ на коменду /planes!")
+                            .text("Тарифные планы на стадии разработки.")
+                            .build());
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
     }
+
 
     public void helpAnswer(long ChatID, Message message) {
         try {
