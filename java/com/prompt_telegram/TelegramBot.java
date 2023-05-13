@@ -33,10 +33,12 @@ public class TelegramBot extends TelegramLongPollingBot {
     @Autowired
     private StableDiffusionQueryRepository stableRepo;
 
-    private enum ChatState {
+    private enum BotState {
         START,
-        SECOND_LEVEL
+        AWAITING_BUTTON
     }
+
+    private BotState botState = BotState.START;
 
     private final String url = "jdbc:postgresql://localhost/mypromptgen";
     private final String username = "postgres";
@@ -81,6 +83,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
 
+
         InlineKeyboardButton buttonStableDiffusion = new InlineKeyboardButton();
         buttonStableDiffusion.setText("Stable Diffusion");
         buttonStableDiffusion.setCallbackData("start0");
@@ -111,7 +114,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    @Async
+
     @Override
     public void onUpdateReceived(Update update) {
 
@@ -124,25 +127,84 @@ public class TelegramBot extends TelegramLongPollingBot {
             String hello = "Привет " + update.getMessage().getChat().getFirstName();
             update.getMessage().getDocument();
 
+            if (messageText.equals("/start")) {
+                startAnswer(command, hello);
+                botState = BotState.AWAITING_BUTTON;
+            }
+               else if (botState == BotState.AWAITING_BUTTON) {
+             if (update.hasCallbackQuery()) {
+                 String callbackData = update.getCallbackQuery().getData();
+                    if (callbackData.equals("start0")) {
+                        try {
+                            String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
+                            execute(SendMessage.builder()
+                                    .chatId(chatId)
+                                    .parseMode("Markdown")
+                                    .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                                    .build());
 
+                            sendMessage(update, "я работаю все хорошо");
 
-            switch (messageText) {
-                case "/start":
-                    startAnswer(command, hello);
+                        } catch (TelegramApiException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                 else if (callbackData.equals("start1")) {
+                     try {
+                         String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
-                    break;
+                         execute(SendMessage.builder()
+                                 .chatId(chatId)
+                                 .parseMode("Markdown")
+                                 .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                                 .build());
 
-                case "/planes":
+                         sendMessage(update, "я работаю все хорошо");
+                     } catch (TelegramApiException e) {
+                         e.printStackTrace();
+                     }
+                 }
+                }
+        botState = BotState.START;
+            } else if (messageText.equals("/planes")) {
+                allPlanes(chatID, command);
+            } else if (messageText.equals("/help")) {
+                helpAnswer(chatID, command);
+            } else if (update.hasCallbackQuery()) {
+                if (update.getCallbackQuery().getData().equals("start0")) {
+                    try {
+                        String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
-                    allPlanes(chatID, command);
-                    break;
+                        execute(SendMessage.builder()
+                                .chatId(chatId)
+                                .parseMode("Markdown")
+                                .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                                .build());
 
-                case "/help":
-                    helpAnswer(chatID, command);
-                    break;
+                        sendMessage(update, "я работаю все хорошо");
 
-                default:
+                    } catch (TelegramApiException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                else if (update.getCallbackQuery().getData().equals("start1")) {
+                    try {
+                        String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+
+                        execute(SendMessage.builder()
+                                .chatId(chatId)
+                                .parseMode("Markdown")
+                                .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                                .build());
+
+                        sendMessage(update, "я работаю все хорошо");
+                    } catch (TelegramApiException e) {
+                        e.printStackTrace();
+                    }
+                }
+                else {
                     try {
                         execute(
                                 SendMessage.builder()
@@ -151,52 +213,22 @@ public class TelegramBot extends TelegramLongPollingBot {
                                         .text("Пробую работать. Или sorry i don't understand. Я скорее всего выполнюсь в любом случае")
                                         .build());
 
-                            execute(
-                            SendMessage.builder()
-                                    .chatId(command.getChatId())
-                                    .parseMode("Markdown")
-                                    .text("Я каким то чудом отработал, кстати привет")
-                                    .build());
+                        execute(
+                                SendMessage.builder()
+                                        .chatId(command.getChatId())
+                                        .parseMode("Markdown")
+                                        .text("Я каким то чудом отработал, кстати привет")
+                                        .build());
 
                     } catch (TelegramApiException e) {
                         e.printStackTrace();
                     }
-                    break;
-            }
-        } else if (update.hasCallbackQuery()) {
-            if (update.getCallbackQuery().getData().equals("start0")) {
-                try {
-                    String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
-
-                    execute(SendMessage.builder()
-                            .chatId(chatId)
-                            .parseMode("Markdown")
-                            .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
-                            .build());
-
-                       sendMessage(update, "я работаю все хорошо");
-
-                } catch (TelegramApiException e) {
-                    e.printStackTrace();
-                }
             }
 
-            } else if (update.getCallbackQuery().getData().equals("start1")) {
-                try {
-                    execute(
-                            SendMessage.builder()
-                                    .chatId(update.getCallbackQuery().getMessage().getChatId())
-                                    .parseMode("Markdown")
-                                    .text("Вы выбрали MidJourney. Введите запрос того, что хотите сгенерировать")
-                                    .build());
 
-
-                } catch (TelegramApiException e) {
-                    e.printStackTrace();
-                }
             }
         }
-
+    }
 
     private void stableDiffString(Message msg) throws TelegramApiException {
         var chatID = msg.getChatId();
