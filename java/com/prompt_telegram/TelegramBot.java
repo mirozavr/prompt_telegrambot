@@ -42,7 +42,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private final String url = "jdbc:postgresql://localhost/mypromptgen";
     private final String username = "postgres";
-    private final String password = "vilka88";
+    private final String password = "v";
 
     static final String HELP_TEXT = "This bot is created to demonstrate Spring capabilities.\n\n" +
             "You can execute commands from the main menu on the left or by typing a command:\n\n" +
@@ -71,12 +71,12 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return "midjourney_best_bot";
+        return "";
     }
 
     @Override
     public String getBotToken() {
-        return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
+        return "";
     }
 
     private void sendWithOutURL(Message message, String hello) {  // кнопки!
