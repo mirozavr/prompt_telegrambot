@@ -3,46 +3,35 @@ package com.prompt_telegram;
 import com.prompt_telegram.entity.StableDiffusionQueryes;
 import com.prompt_telegram.repository.StableDiffusionQueryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
-
-    HashMap<Long, ArrayList<String>> mapAnswer = new HashMap<>();
-    ArrayList<Long> listOfUsers = new ArrayList<>();
+    private Map<String, Boolean> userStates = new HashMap<>();
 
     @Autowired
     private StableDiffusionQueryRepository stableRepo;
 
-    private enum BotState {
-        START,
-        AWAITING_BUTTON
-    }
-
-    private BotState botState = BotState.START;
-
     private final String url = "jdbc:postgresql://localhost/mypromptgen";
     private final String username = "postgres";
-    private final String password = "v";
+    private final String password = "vilka88";
 
     static final String HELP_TEXT = "This bot is created to demonstrate Spring capabilities.\n\n" +
             "You can execute commands from the main menu on the left or by typing a command:\n\n" +
@@ -53,7 +42,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     public TelegramBot() {
 
-        List<BotCommand> listOfCommands = new ArrayList(); // BotCommand -  удобный класс телеграм для создания и описания команд.
+        List<BotCommand> listOfCommands = new ArrayList(); // BotCommand - удобный класс телеграм для создания и описания команд.
         listOfCommands.add(new BotCommand("/start", "This is start (first) command"));
         listOfCommands.add(new BotCommand("/planes", "Click to see prices"));
         listOfCommands.add(new BotCommand("/my_prompts", "Get your prompts store"));
@@ -71,12 +60,12 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return "";
+        return "midjourney_best_bot";
     }
 
     @Override
     public String getBotToken() {
-        return "";
+        return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
     }
 
     private void sendWithOutURL(Message message, String hello) {  // кнопки!
@@ -112,122 +101,110 @@ public class TelegramBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
+
     }
 
 
     @Override
     public void onUpdateReceived(Update update) {
-
-        boolean hasText = update.hasMessage() && update.getMessage().hasText();
-
         if (update.hasMessage() && update.getMessage().hasText()) {
             String messageText = update.getMessage().getText();
             Message command = update.getMessage();
             long chatID = update.getMessage().getChatId();
+            String chatIdString = update.getMessage().getChatId().toString();
             String hello = "Привет " + update.getMessage().getChat().getFirstName();
             update.getMessage().getDocument();
 
-            if (messageText.equals("/start")) {
-                startAnswer(command, hello);
-                botState = BotState.AWAITING_BUTTON;
-            }
-               else if (botState == BotState.AWAITING_BUTTON) {
-             if (update.hasCallbackQuery()) {
-                 String callbackData = update.getCallbackQuery().getData();
-                    if (callbackData.equals("start0")) {
-                        try {
-                            String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
-                            execute(SendMessage.builder()
+            switch (messageText) {
+                case "/start":
+                    startAnswer(command, hello);
+                    break;
+
+                case "/planes":
+
+                    allPlanes(chatID, command);
+                    break;
+
+                case "/help":
+                    helpAnswer(chatID, command);
+                    break;
+            }
+                      if (update.hasMessage() && update.getMessage().hasText()) {
+                    // Обработка текстового сообщения от пользователя
+                    String chatId = update.getMessage().getChatId().toString();
+                    String userResponse = update.getMessage().getText();
+
+                    // Проверяем, в каком состоянии находится пользователь
+                    if (isWaitingForUserInputStableDiffusion(chatId)) {
+                        // Выполняем второй execute
+                        String photoUrl = "https://astrafarm.com/images/encyclopedia/ittenVes170221.jpg";
+                        InputFile inputFile = new InputFile(photoUrl);
+
+                        try {
+                            execute(SendPhoto.builder()
                                     .chatId(chatId)
                                     .parseMode("Markdown")
-                                    .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                                    .photo(inputFile)
                                     .build());
-
-                            sendMessage(update, "я работаю все хорошо");
-
                         } catch (TelegramApiException e) {
                             e.printStackTrace();
                         }
+
+                        clearNextStep(chatId); // Очищаем состояние пользователя после выполнения второго шага
                     }
-                 else if (callbackData.equals("start1")) {
-                     try {
-                         String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
-                         execute(SendMessage.builder()
-                                 .chatId(chatId)
-                                 .parseMode("Markdown")
-                                 .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
-                                 .build());
-
-                         sendMessage(update, "я работаю все хорошо");
-                     } catch (TelegramApiException e) {
-                         e.printStackTrace();
-                     }
-                 }
-                }
-        botState = BotState.START;
-            } else if (messageText.equals("/planes")) {
-                allPlanes(chatID, command);
-            } else if (messageText.equals("/help")) {
-                helpAnswer(chatID, command);
-            } else if (update.hasCallbackQuery()) {
-                if (update.getCallbackQuery().getData().equals("start0")) {
-                    try {
-                        String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
-
-                        execute(SendMessage.builder()
-                                .chatId(chatId)
-                                .parseMode("Markdown")
-                                .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
-                                .build());
-
-                        sendMessage(update, "я работаю все хорошо");
-
-                    } catch (TelegramApiException e) {
-                        e.printStackTrace();
-                    }
-                }
-
-                else if (update.getCallbackQuery().getData().equals("start1")) {
-                    try {
-                        String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
-
-                        execute(SendMessage.builder()
-                                .chatId(chatId)
-                                .parseMode("Markdown")
-                                .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
-                                .build());
-
-                        sendMessage(update, "я работаю все хорошо");
-                    } catch (TelegramApiException e) {
-                        e.printStackTrace();
-                    }
-                }
-                else {
-                    try {
-                        execute(
-                                SendMessage.builder()
-                                        .chatId(command.getChatId())
-                                        .parseMode("Markdown")
-                                        .text("Пробую работать. Или sorry i don't understand. Я скорее всего выполнюсь в любом случае")
-                                        .build());
-
-                        execute(
-                                SendMessage.builder()
-                                        .chatId(command.getChatId())
-                                        .parseMode("Markdown")
-                                        .text("Я каким то чудом отработал, кстати привет")
-                                        .build());
-
-                    } catch (TelegramApiException e) {
-                        e.printStackTrace();
-                    }
             }
+        } else if (update.hasCallbackQuery()) {
+            if (update.getCallbackQuery().getData().equals("start0")) {
+                try {
+                    String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
+                    execute(SendMessage.builder()
+                            .chatId(chatId)
+                            .parseMode("Markdown")
+                            .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
+                            .allowSendingWithoutReply(true)
+                            .build());
+  
+                    setNextStep(chatId);
 
+                        execute(SendMessage.builder()
+                                .chatId(chatId)
+                                .parseMode("Markdown")
+                                .text("Желательно описанее не менее шести слов")
+                                .build());
+
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
+
+            } else if (update.getCallbackQuery().getData().equals("start1")) {
+                try {
+                    execute(
+                            SendMessage.builder()
+                                    .chatId(update.getCallbackQuery().getMessage().getChatId())
+                                    .parseMode("Markdown")
+                                    .text("Вы выбрали MidJourney. Введите запрос того, что хотите сгенерировать")
+                                    .build());
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
             }
         }
+
+    }
+
+    private void clearNextStep(String chatId) {
+        userStates.remove(chatId);
+    }
+
+    private boolean isWaitingForUserInputStableDiffusion(String chatId) {
+        return userStates.containsKey(chatId) && userStates.get(chatId);
+    }
+
+    private void setNextStep(String chatId) {
+        userStates.put(chatId, true);
     }
 
     private void stableDiffString(Message msg) throws TelegramApiException {
