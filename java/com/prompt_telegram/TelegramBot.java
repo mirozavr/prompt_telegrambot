@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
+import org.telegram.telegrambots.meta.api.methods.send.SendMediaGroup;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
@@ -13,6 +14,8 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
+import org.telegram.telegrambots.meta.api.objects.media.InputMedia;
+import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -25,6 +28,9 @@ import java.util.Map;
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
     private Map<String, Boolean> userStates = new HashMap<>();
+    private static final int stableDiffusion = 1;
+    private static final int MidJourney = 2;
+    private static int sostoyanie;
 
     @Autowired
     private StableDiffusionQueryRepository stableRepo;
@@ -68,7 +74,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
     }
 
-    private void sendWithOutURL(Message message, String hello) {  // кнопки!
+    private void firstChoiceNeural(Message message, String hello) {  // кнопки!
 
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
 
@@ -136,7 +142,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                     String userResponse = update.getMessage().getText();
 
                     // Проверяем, в каком состоянии находится пользователь
-                    if (isWaitingForUserInputStableDiffusion(chatId)) {
+                    if (isWaitingForUserInputStableDiffusion(chatId)  && sostoyanie == stableDiffusion) {
                         // Выполняем второй execute
                         String photoUrl = "https://astrafarm.com/images/encyclopedia/ittenVes170221.jpg";
                         InputFile inputFile = new InputFile(photoUrl);
@@ -147,11 +153,23 @@ public class TelegramBot extends TelegramLongPollingBot {
                                     .parseMode("Markdown")
                                     .photo(inputFile)
                                     .build());
+                            stableDiffString(userResponse, command);
+                            firstChoiceNeural(command, hello);
                         } catch (TelegramApiException e) {
                             e.printStackTrace();
                         }
 
                         clearNextStep(chatId); // Очищаем состояние пользователя после выполнения второго шага
+                    }
+                     else if (isWaitingForUserInputMiJourney(chatId) && sostoyanie == MidJourney) {
+                        List<String> photoUrls = new ArrayList<>();
+                        photoUrls.add("https://blitzpet.ru/wp-content/uploads/2019/04/pochemu-shhenok-ne-nabiraet-ves-na-suhom-korme.jpg");
+                        photoUrls.add("https://4lapy.ru/resize/1157x660/upload/iblock/9a1/9a1631bd1a8ece6c278e7b5a685b4549.jpg");
+                        photoUrls.add("https://fikiwiki.com/uploads/posts/2022-02/1644866275_1-fikiwiki-com-p-shchenki-krasivie-kartinki-1.jpg");
+                        photoUrls.add("https://www.purina.ru/sites/default/files/2022-10/1140_shutterstock_1517123654.jpg");
+
+                        sendMultiplePhotosToUser(chatId, photoUrls);
+                        firstChoiceNeural(command, hello);
                     }
 
             }
@@ -159,6 +177,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             if (update.getCallbackQuery().getData().equals("start0")) {
                 try {
                     String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+                    sostoyanie = stableDiffusion;
 
                     execute(SendMessage.builder()
                             .chatId(chatId)
@@ -181,12 +200,21 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             } else if (update.getCallbackQuery().getData().equals("start1")) {
                 try {
+                    String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+                    sostoyanie = MidJourney;
                     execute(
                             SendMessage.builder()
                                     .chatId(update.getCallbackQuery().getMessage().getChatId())
                                     .parseMode("Markdown")
                                     .text("Вы выбрали MidJourney. Введите запрос того, что хотите сгенерировать")
                                     .build());
+                    setNextStep(chatId);
+
+                    execute(SendMessage.builder()
+                            .chatId(chatId)
+                            .parseMode("Markdown")
+                            .text("Желательно описанее не менее шести слов")
+                            .build());
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
                 }
@@ -202,14 +230,36 @@ public class TelegramBot extends TelegramLongPollingBot {
     private boolean isWaitingForUserInputStableDiffusion(String chatId) {
         return userStates.containsKey(chatId) && userStates.get(chatId);
     }
+    private boolean isWaitingForUserInputMiJourney(String chatId) {
+        return userStates.containsKey(chatId) && userStates.get(chatId);
+    }
 
     private void setNextStep(String chatId) {
         userStates.put(chatId, true);
     }
 
-    private void stableDiffString(Message msg) throws TelegramApiException {
+    private void sendMultiplePhotosToUser(String chatId, List<String> photoUrls) {
+        List<InputMedia> mediaList = new ArrayList<>();
+        for (String photoUrl : photoUrls) {
+            InputMediaPhoto mediaPhoto = new InputMediaPhoto(photoUrl);
+            mediaList.add(mediaPhoto);
+        }
+
+        SendMediaGroup sendMediaGroup = new SendMediaGroup();
+        sendMediaGroup.setChatId(chatId);
+        sendMediaGroup.setMedias(mediaList);
+
+        try {
+            execute(sendMediaGroup);
+
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void stableDiffString(String text, Message msg) throws TelegramApiException {
         var chatID = msg.getChatId();
-        var query = msg.getText();
+        var query = text;
         var username = msg.getChat().getFirstName();
         StableDiffusionQueryes stableDiffusionEntity = new StableDiffusionQueryes();
 
@@ -240,7 +290,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
 
     public void startAnswer(Message command, String hello) {
-        sendWithOutURL(command, hello);
+        firstChoiceNeural(command, hello);
     }
 
     private void allPlanes(long ChatID, Message message) {
