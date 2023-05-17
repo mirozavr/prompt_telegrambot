@@ -1,5 +1,16 @@
 package com.prompt_telegram;
 
+import org.jsoup.Jsoup;
+import org.jsoup.Connection;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.openqa.selenium.By;
+import org.openqa.selenium.Keys;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
@@ -17,11 +28,11 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.io.IOException;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+
+import static java.lang.Thread.sleep;
 
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
@@ -30,6 +41,9 @@ public class TelegramBot extends TelegramLongPollingBot {
     private static final int MidJourney = 2;
     private static final int click5ReqStable = 3;
     private static final int click5ReqMj = 4;
+
+    private static Message commandHelper;
+    private static String helloHelper;
     private static int sostoyanie;
 
    // @Autowired
@@ -70,7 +84,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotToken() {
-        return "";
+        return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
     }
 
     private void firstChoiceNeural(Message message, String hello) {  // кнопки!
@@ -132,6 +146,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             String chatIdString = update.getMessage().getChatId().toString();
             String hello = "Привет " + update.getMessage().getChat().getFirstName();
             update.getMessage().getDocument();
+            staticHelper(command, hello);
 
 
             switch (messageText) {
@@ -184,20 +199,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                         firstChoiceNeural(command, hello);
                     }
                      else if (sender5LastStableDiffusion(chatId) && sostoyanie == click5ReqStable) {
-                         String userInput = userResponse;
-
-                        try {
-                            execute(SendMessage.builder()
-                                    .chatId(chatId)
-                                    .parseMode("Markdown")
-                                    .text("первый этап отработал")
-                                    .build());
-                            getLastFiveEntriesStableDiff(command);
-                            firstChoiceNeural(command, hello);
-                        } catch (TelegramApiException e) {
-                            e.printStackTrace();
-                        }
-
+                         firstChoiceNeural(command, hello);
                         clearNextStep(chatId);
 
                     }
@@ -215,14 +217,14 @@ public class TelegramBot extends TelegramLongPollingBot {
                             .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
                             .allowSendingWithoutReply(true)
                             .build());
-  
+
                     setNextStep(chatId);
 
-                        execute(SendMessage.builder()
-                                .chatId(chatId)
-                                .parseMode("Markdown")
-                                .text("Желательно описание не менее шести слов")
-                                .build());
+                    execute(SendMessage.builder()
+                            .chatId(chatId)
+                            .parseMode("Markdown")
+                            .text("Желательно описание не менее шести слов")
+                            .build());
 
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
@@ -248,25 +250,24 @@ public class TelegramBot extends TelegramLongPollingBot {
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
                 }
-            }
-            else if (update.getCallbackQuery().getData().equals("fiveStable")) {
+            } else if (update.getCallbackQuery().getData().equals("fiveStable")) {
+                sostoyanie = click5ReqStable;
+                String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
                 try {
-                    String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
-                    sostoyanie = click5ReqStable;
+                    getLastFiveEntriesStableDiff(chatId);
                     setNextStep(chatId);
-
-
-                    execute(SendMessage.builder()
-                            .chatId(update.getCallbackQuery().getMessage().getChatId())
-                            .parseMode("Markdown")
-                            .text("Я работаю Епт!)")
-                            .build());
-
-                } catch (TelegramApiException e) {
-                    e.printStackTrace();
+                    startAnswer(commandHelper, helloHelper);
+                }
+                catch (TelegramApiException e) {
+                    throw new RuntimeException(e);
                 }
             }
         }
+    }
+
+    private void staticHelper(Message command, String hello) {
+        commandHelper = command;
+        helloHelper = hello;
     }
 
     private void clearNextStep(String chatId) {
@@ -313,7 +314,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         String userName = msg.getChat().getUserName();
         long chatId = msg.getChat().getId();
 
-        try (Connection connection = DriverManager.getConnection(url, usernameBD, password)) {
+        try (java.sql.Connection connection = DriverManager.getConnection(url, usernameBD, password)) {
             String insertQuery = "INSERT INTO stable_diffusion (first_name, query, user_name, chat_id) VALUES (?, ?, ?, ?)";
 
             try (PreparedStatement statement = connection.prepareStatement(insertQuery)) {
@@ -337,17 +338,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private void getLastFiveEntriesStableDiff(Message msg) throws TelegramApiException {
-        try (Connection connection = DriverManager.getConnection(url, usernameBD, password)) {
+    private void getLastFiveEntriesStableDiff(String chatId) throws TelegramApiException {
+        try (java.sql.Connection connection = DriverManager.getConnection(url, usernameBD, password)) {
             String selectQuery = "SELECT first_name, query FROM stable_diffusion ORDER BY id DESC LIMIT 5";
 
             try (PreparedStatement statement = connection.prepareStatement(selectQuery)) {
-                execute(
-                        SendMessage.builder()
-                                .chatId(msg.getChatId())
-                                .parseMode("Markdown")
-                                .text("Метод отправки 5 строк запущен")
-                                .build());
+
                 ResultSet resultSet = statement.executeQuery();
 
                 StringBuilder messageText = new StringBuilder("Ваши последние записи:\n");
@@ -355,42 +351,28 @@ public class TelegramBot extends TelegramLongPollingBot {
                 while (resultSet.next()) {
                     String firstName = resultSet.getString("first_name");
                     String query = resultSet.getString("query");
-
+                    execute(
+                            SendMessage.builder()
+                                    .chatId(chatId)
+                                    .parseMode("Markdown")
+                                    .text(query)
+                                    .build());
                     messageText.append("- ").append(firstName).append(": ").append(query).append("\n");
                 }
 
                 execute(
                         SendMessage.builder()
-                                .chatId(msg.getChatId())
+                                .chatId(chatId)
                                 .parseMode("Markdown")
                                 .text(messageText.toString())
-                                .build());
-
-                execute(
-                        SendMessage.builder()
-                                .chatId(msg.getChatId())
-                                .parseMode("Markdown")
-                                .text("Метод отправки 5 строк отработан")
                                 .build());
             }
 
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        clearNextStep(chatId);
     }
-    public void sendMessage(Update update, String text){
-        try {
-            execute(
-                    SendMessage.builder()
-                            .chatId((update.hasMessage()) ? update.getMessage().getChatId() : update.getCallbackQuery().getFrom().getId())
-                            .text(text)
-                            .build());
-        }
-        catch (TelegramApiException e) {
-            e.printStackTrace();
-        }
-    }
-
 
     public void startAnswer(Message command, String hello) {
         firstChoiceNeural(command, hello);
@@ -403,14 +385,12 @@ public class TelegramBot extends TelegramLongPollingBot {
                             .chatId(message.getChatId())
                             .chatId(ChatID)
                             .parseMode("Markdown")
-                            .text("Я ответ на коменду /planes!")
                             .text("Тарифные планы на стадии разработки.")
                             .build());
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
     }
-
 
     public void helpAnswer(long ChatID, Message message) {
         try {
@@ -429,4 +409,99 @@ public class TelegramBot extends TelegramLongPollingBot {
             e.printStackTrace();
         }
     }
+
+    public void jsoupDiffusion(String request) {
+        try {
+            // Отправка GET-запроса и получение содержимого страницы
+            Connection.Response response = Jsoup.connect("https://stablediffusionweb.com/#demo.html")
+                    .method(Connection.Method.GET)
+                    .execute();
+            Document document = response.parse();
+
+            // Нахождение и очистка поля ввода
+            Element input = document.selectFirst("html body gradio-app div div:nth-child(2) div div div:nth-child(2) div:nth-child(1) div div div label input");
+            input.val("");
+
+            // Ввод нужной строки
+            input.val(request);
+
+            // Нахождение кнопки и имитация нажатия
+            Element button = document.selectFirst("html body gradio-app div div:nth-child(2) div div div:nth-child(2) div:nth-child(1) div button");
+
+            // Получение необходимых параметров для отправки POST-запроса
+            String url = "https://stablediffusionweb.com/#demo.html";
+            String action = button.attr("formaction");
+            String method = button.attr("formmethod");
+
+            // Подготовка данных для POST-запроса
+            Map<String, String> postData = new HashMap<>();
+            Elements inputElements = document.select("input");
+            for (Element inputElement : inputElements) {
+                String name = inputElement.attr("name");
+                String value = inputElement.val();
+                postData.put(name, value);
+            }
+
+            // Отправка POST-запроса с имитацией нажатия кнопки
+            Connection.Response postResponse = Jsoup.connect(url)
+                    .data(postData)
+                    .method(Connection.Method.valueOf(method))
+                    .execute();
+
+            Document postDocument = postResponse.parse();
+
+            // Подождать 10 секунд для загрузки данных
+            Thread.sleep(10000);
+
+            // Получение данных из указанного элемента и сохранение как картинка
+            Element svgElement = postDocument.selectFirst("html body gradio-app div div:nth-child(2) div div div:nth-child(2) div:nth-child(2) div:nth-child(2) div div svg");
+            // Здесь вы можете обработать svgElement, чтобы сохранить его как картинку с помощью других библиотек, таких как Batik или Apache PDFBox.
+            // Для простоты примера я просто выведу его содержимое на консоль.
+            System.out.println(svgElement.outerHtml());
+        } catch (InterruptedException | IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+   /* public void seleniumDiffusion(String request) {
+        ChromeOptions options = new ChromeOptions();
+
+        options.addArguments("-no-sandbox");
+        options.setExperimentalOption("useAutomationExtension", false);
+        options.setExperimentalOption("excludeSwitches", Collections.singletonList("enable-automation"));
+
+        WebDriver driver = new ChromeDriver(options);
+        driver.get("https://stablediffusionweb.com/#demo.html");
+
+        WebElement input = driver.findElement(By.xpath("/html/body/gradio-app/div/div[2]/div/div/div[2]/div[1]/div/div/div/label/input"));
+        input.clear();
+        input.sendKeys(request);
+        input.sendKeys(Keys.ENTER);
+        try {
+            sleep(10000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }*/
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
