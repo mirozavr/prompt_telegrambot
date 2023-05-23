@@ -79,12 +79,12 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return "midjourney_best_bot";
+        return "midjourney";
     }
 
     @Override
     public String getBotToken() {
-        return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
+        return "your token";
     }
 
     private void firstChoiceNeural(Message message, String hello) {  // кнопки!
