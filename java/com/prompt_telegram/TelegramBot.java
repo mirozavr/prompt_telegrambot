@@ -1,8 +1,16 @@
 package com.prompt_telegram;
 
-import com.prompt_telegram.entity.StableDiffusionQueryes;
-import com.prompt_telegram.repository.StableDiffusionQueryRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.jsoup.Jsoup;
+import org.jsoup.Connection;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.openqa.selenium.By;
+import org.openqa.selenium.Keys;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
@@ -20,23 +28,28 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.sql.*;
+import java.util.*;
+
+import static java.lang.Thread.sleep;
 
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
     private Map<String, Boolean> userStates = new HashMap<>();
     private static final int stableDiffusion = 1;
     private static final int MidJourney = 2;
+    private static final int click5ReqStable = 3;
+    private static final int click5ReqMj = 4;
+
+    private static Message commandHelper;
+    private static String helloHelper;
     private static int sostoyanie;
 
-    @Autowired
-    private StableDiffusionQueryRepository stableRepo;
-
+   // @Autowired
+   // private StableDiffusionQueryRepository stableRepo;
     private final String url = "jdbc:postgresql://localhost/mypromptgen";
-    private final String username = "postgres";
+    private final String usernameBD = "postgres";
     private final String password = "vilka88";
 
     static final String HELP_TEXT = "This bot is created to demonstrate Spring capabilities.\n\n" +
@@ -87,13 +100,26 @@ public class TelegramBot extends TelegramLongPollingBot {
         buttonMidJourney.setText("MidJourney");
         buttonMidJourney.setCallbackData("start1");
 
+        InlineKeyboardButton buttonLastFiveRequestsStableDiff = new InlineKeyboardButton();
+        buttonLastFiveRequestsStableDiff.setText("Last 5 requests SD");
+        buttonLastFiveRequestsStableDiff.setCallbackData("fiveStable");
+
+        InlineKeyboardButton buttonLastFiveRequestsMJ = new InlineKeyboardButton();
+        buttonLastFiveRequestsMJ.setText("Last 5 requests MJ");
+        buttonLastFiveRequestsMJ.setCallbackData("fiveMJ");
+
         List<InlineKeyboardButton> keyboardButtonsRow = new ArrayList<>();
         keyboardButtonsRow.add(buttonStableDiffusion);
         keyboardButtonsRow.add(buttonMidJourney);
+
+        List<InlineKeyboardButton> keyboardButtons5Lists = new ArrayList<>();
+        keyboardButtons5Lists.add(buttonLastFiveRequestsStableDiff);
+        keyboardButtons5Lists.add(buttonLastFiveRequestsMJ);
+
         List<List<InlineKeyboardButton>> rowList = new ArrayList<>();
         rowList.add(keyboardButtonsRow);
+        rowList.add(keyboardButtons5Lists);
         keyboard.setKeyboard(rowList);
-
 
         try {
             execute(
@@ -120,6 +146,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             String chatIdString = update.getMessage().getChatId().toString();
             String hello = "Привет " + update.getMessage().getChat().getFirstName();
             update.getMessage().getDocument();
+            staticHelper(command, hello);
 
 
             switch (messageText) {
@@ -144,7 +171,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                     // Проверяем, в каком состоянии находится пользователь
                     if (isWaitingForUserInputStableDiffusion(chatId)  && sostoyanie == stableDiffusion) {
                         // Выполняем второй execute
-                        String photoUrl = "https://astrafarm.com/images/encyclopedia/ittenVes170221.jpg";
+//                       String photoUrl = "https://astrafarm.com/images/encyclopedia/ittenVes170221.jpg";
+//                       InputFile inputFile = new InputFile(photoUrl);
+                        String photoUrl = jsoupDiffusion(userResponse);
                         InputFile inputFile = new InputFile(photoUrl);
 
                         try {
@@ -155,6 +184,12 @@ public class TelegramBot extends TelegramLongPollingBot {
                                     .build());
                             stableDiffString(userResponse, command);
                             firstChoiceNeural(command, hello);
+
+                            execute(SendMessage.builder()
+                                    .chatId(chatId)
+                                    .parseMode("Markdown")
+                                    .text("String картинки - " + photoUrl)
+                                    .build());
                         } catch (TelegramApiException e) {
                             e.printStackTrace();
                         }
@@ -171,8 +206,13 @@ public class TelegramBot extends TelegramLongPollingBot {
                         sendMultiplePhotosToUser(chatId, photoUrls);
                         firstChoiceNeural(command, hello);
                     }
+                     else if (sender5LastStableDiffusion(chatId) && sostoyanie == click5ReqStable) {
+                         firstChoiceNeural(command, hello);
+                        clearNextStep(chatId);
 
+                    }
             }
+
         } else if (update.hasCallbackQuery()) {
             if (update.getCallbackQuery().getData().equals("start0")) {
                 try {
@@ -185,14 +225,14 @@ public class TelegramBot extends TelegramLongPollingBot {
                             .text("Вы выбрали Stable Diffusion. Введите запрос того, что хотите сгенерировать.")
                             .allowSendingWithoutReply(true)
                             .build());
-  
+
                     setNextStep(chatId);
 
-                        execute(SendMessage.builder()
-                                .chatId(chatId)
-                                .parseMode("Markdown")
-                                .text("Желательно описанее не менее шести слов")
-                                .build());
+                    execute(SendMessage.builder()
+                            .chatId(chatId)
+                            .parseMode("Markdown")
+                            .text("Желательно описание не менее шести слов")
+                            .build());
 
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
@@ -213,14 +253,29 @@ public class TelegramBot extends TelegramLongPollingBot {
                     execute(SendMessage.builder()
                             .chatId(chatId)
                             .parseMode("Markdown")
-                            .text("Желательно описанее не менее шести слов")
+                            .text("Желательно описание не менее шести слов")
                             .build());
                 } catch (TelegramApiException e) {
                     e.printStackTrace();
                 }
+            } else if (update.getCallbackQuery().getData().equals("fiveStable")) {
+                sostoyanie = click5ReqStable;
+                String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+                try {
+                    getLastFiveEntriesStableDiff(chatId);
+                    setNextStep(chatId);
+                    startAnswer(commandHelper, helloHelper);
+                }
+                catch (TelegramApiException e) {
+                    throw new RuntimeException(e);
+                }
             }
         }
+    }
 
+    private void staticHelper(Message command, String hello) {
+        commandHelper = command;
+        helloHelper = hello;
     }
 
     private void clearNextStep(String chatId) {
@@ -231,6 +286,10 @@ public class TelegramBot extends TelegramLongPollingBot {
         return userStates.containsKey(chatId) && userStates.get(chatId);
     }
     private boolean isWaitingForUserInputMiJourney(String chatId) {
+        return userStates.containsKey(chatId) && userStates.get(chatId);
+    }
+
+    private boolean sender5LastStableDiffusion(String chatId) {
         return userStates.containsKey(chatId) && userStates.get(chatId);
     }
 
@@ -258,36 +317,70 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void stableDiffString(String text, Message msg) throws TelegramApiException {
-        var chatID = msg.getChatId();
-        var query = text;
-        var username = msg.getChat().getFirstName();
-        StableDiffusionQueryes stableDiffusionEntity = new StableDiffusionQueryes();
+        String query = text;
+        String fistName = msg.getChat().getFirstName();
+        String userName = msg.getChat().getUserName();
+        long chatId = msg.getChat().getId();
 
-        stableDiffusionEntity.setQuery(query);
-        stableDiffusionEntity.setUsr(username);
+        try (java.sql.Connection connection = DriverManager.getConnection(url, usernameBD, password)) {
+            String insertQuery = "INSERT INTO stable_diffusion (first_name, query, user_name, chat_id) VALUES (?, ?, ?, ?)";
 
-        stableRepo.save(stableDiffusionEntity);
-        execute(
-                SendMessage.builder()
-                        .chatId(msg.getChatId())
-                        .chatId(chatID)
-                        .parseMode("Markdown")
-                        .text("метод отправки в БД stable_diffusion отработал")
-                        .build());
-    }
-    public void sendMessage(Update update, String text){
-        try {
+            try (PreparedStatement statement = connection.prepareStatement(insertQuery)) {
+
+                statement.setString(1, fistName);
+                statement.setString(2, query);
+                statement.setString(3, userName);
+                statement.setLong(4, chatId);
+                statement.executeUpdate();
+
+            }
+
             execute(
                     SendMessage.builder()
-                            .chatId((update.hasMessage()) ? update.getMessage().getChatId() : update.getCallbackQuery().getFrom().getId())
-                            .text(text)
+                            .chatId(msg.getChatId())
+                            .parseMode("Markdown")
+                            .text("Метод сохранения в БД `stable_diffusion` отработал")
                             .build());
-        }
-        catch (TelegramApiException e) {
+        } catch (TelegramApiException | SQLException e) {
             e.printStackTrace();
         }
     }
 
+    private void getLastFiveEntriesStableDiff(String chatId) throws TelegramApiException {
+        try (java.sql.Connection connection = DriverManager.getConnection(url, usernameBD, password)) {
+            String selectQuery = "SELECT first_name, query FROM stable_diffusion ORDER BY id DESC LIMIT 5";
+
+            try (PreparedStatement statement = connection.prepareStatement(selectQuery)) {
+
+                ResultSet resultSet = statement.executeQuery();
+
+                StringBuilder messageText = new StringBuilder("Если удобнее все вместе:\n");
+
+                while (resultSet.next()) {
+                    String firstName = resultSet.getString("first_name");
+                    String query = resultSet.getString("query");
+                    execute(
+                            SendMessage.builder()
+                                    .chatId(chatId)
+                                    .parseMode("Markdown")
+                                    .text(query)
+                                    .build());
+                    messageText.append("- ").append(firstName).append(": ").append(query).append("\n");
+                }
+
+                execute(
+                        SendMessage.builder()
+                                .chatId(chatId)
+                                .parseMode("Markdown")
+                                .text(messageText.toString())
+                                .build());
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        clearNextStep(chatId);
+    }
 
     public void startAnswer(Message command, String hello) {
         firstChoiceNeural(command, hello);
@@ -300,14 +393,12 @@ public class TelegramBot extends TelegramLongPollingBot {
                             .chatId(message.getChatId())
                             .chatId(ChatID)
                             .parseMode("Markdown")
-                            .text("Я ответ на коменду /planes!")
                             .text("Тарифные планы на стадии разработки.")
                             .build());
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
     }
-
 
     public void helpAnswer(long ChatID, Message message) {
         try {
@@ -326,4 +417,82 @@ public class TelegramBot extends TelegramLongPollingBot {
             e.printStackTrace();
         }
     }
+
+    public String jsoupDiffusion(String request) {
+        try {
+            // Отправка GET-запроса и получение содержимого страницы
+           Connection.Response response = Jsoup.connect("https://stablediffusionweb.com/#demo")
+                    .timeout(10000)
+                    .method(Connection.Method.GET)
+                    .execute();
+
+           Document document = response.parse();
+
+           Element inputField = document.selectFirst("input[data-testid='textbox']");
+            if (inputField != null) {
+                inputField.val(request);
+            }
+
+            // Нахождение кнопки и имитация нажатия
+           // Element button = document.selectFirst("#component-6");
+            document.selectFirst("#component-6");
+
+            // Подождать 10 секунд
+            Thread.sleep(13000);
+
+            Element imageElement = document.selectFirst("[fdprocessedid='hvl15f']");
+            if (imageElement != null) {
+                String imageUrl = imageElement.attr("src");
+                return imageUrl;
+            }
+
+    } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        return "https://a-cloud.b-cdn.net/media/iW=766&iH=431&oX=0&oY=2&cW=766&cH=427/eaa36e997bd8f129f9fe2e059b66c148.jpg";
+    }
+
+   /* public void seleniumDiffusion(String request) {
+        ChromeOptions options = new ChromeOptions();
+
+        options.addArguments("-no-sandbox");
+        options.setExperimentalOption("useAutomationExtension", false);
+        options.setExperimentalOption("excludeSwitches", Collections.singletonList("enable-automation"));
+
+        WebDriver driver = new ChromeDriver(options);
+        driver.get("https://stablediffusionweb.com/#demo.html");
+
+        WebElement input = driver.findElement(By.xpath("/html/body/gradio-app/div/div[2]/div/div/div[2]/div[1]/div/div/div/label/input"));
+        input.clear();
+        input.sendKeys(request);
+        input.sendKeys(Keys.ENTER);
+        try {
+            sleep(10000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }*/
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
