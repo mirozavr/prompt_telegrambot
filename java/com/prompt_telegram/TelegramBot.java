@@ -84,7 +84,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotToken() {
-        return "5870416748:AAFqvFIZ-hOhpsXDuKK0CsWNm6VasSoFfOE";
+        return "58E";
     }
 
     private void firstChoiceNeural(Message message, String hello) {  // кнопки!
